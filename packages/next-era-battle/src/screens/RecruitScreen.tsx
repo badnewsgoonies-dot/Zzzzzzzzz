@@ -1,0 +1,404 @@
+/*
+ * RecruitScreen: Recruit defeated enemies
+ * Per PowerPoint mockup Slide 5
+ * 
+ * Features:
+ * - Shows defeated enemies from battle
+ * - Player can recruit one enemy
+ * - If team full (4 units), must replace existing unit
+ * - Skip option to recruit nobody
+ */
+
+import React, { useState } from 'react';
+import type { EnemyUnitTemplate, PlayerUnit, Role } from '../types/game.js';
+import { TeamManager } from '../systems/TeamManager.js';
+import { getRankDisplay, canUpgradeRank, getRankBonusDescription, getNextRank } from '../systems/RankSystem.js';
+
+export interface RecruitScreenProps {
+  defeatedEnemies: readonly EnemyUnitTemplate[];
+  currentTeam: readonly PlayerUnit[];
+  bench?: readonly PlayerUnit[]; // Reserve units on bench
+  onRecruit: (enemyId: string, replaceUnitId?: string) => void;
+  onAddToBench?: (enemyId: string) => void; // Add to bench without replacing
+  onMerge?: (enemyTemplateId: string, targetUnitId: string) => void;
+  onSkip: () => void;
+}
+
+const ROLE_COLORS: Record<Role, string> = {
+  Tank: 'bg-blue-600',
+  DPS: 'bg-red-600',
+  Support: 'bg-purple-600',
+  Specialist: 'bg-amber-600',
+};
+
+export function RecruitScreen({
+  defeatedEnemies,
+  currentTeam,
+  bench = [],
+  onRecruit,
+  onAddToBench,
+  onMerge,
+  onSkip,
+}: RecruitScreenProps): React.ReactElement {
+  const [selectedEnemyId, setSelectedEnemyId] = useState<string | null>(null);
+  const [showReplacementModal, setShowReplacementModal] = useState(false);
+  const [showAddToBenchModal, setShowAddToBenchModal] = useState(false);
+  const [showMergeModal, setShowMergeModal] = useState(false);
+  const [duplicateUnit, setDuplicateUnit] = useState<PlayerUnit | null>(null);
+
+  const teamManager = new TeamManager();
+  const teamIsFull = currentTeam.length >= 4;
+  const benchHasSpace = bench.length < 4;
+  const MAX_BENCH_SIZE = 4;
+
+  const handleRecruitClick = (enemy: EnemyUnitTemplate) => {
+    // Check if team has a duplicate (same templateId)
+    const duplicate = teamManager.findDuplicate(currentTeam, enemy.id);
+
+    if (duplicate && canUpgradeRank(duplicate.rank) && onMerge) {
+      // Show merge option!
+      setSelectedEnemyId(enemy.id);
+      setDuplicateUnit(duplicate);
+      setShowMergeModal(true);
+    } else if (benchHasSpace && onAddToBench) {
+      // Bench has space - show add-to-bench option
+      setSelectedEnemyId(enemy.id);
+      setShowAddToBenchModal(true);
+    } else if (teamIsFull) {
+      // Team full and no bench space - must replace
+      setSelectedEnemyId(enemy.id);
+      setShowReplacementModal(true);
+    } else {
+      // Active party not full - add directly to active party
+      onRecruit(enemy.id);
+    }
+  };
+
+  const handleAddToBench = () => {
+    if (selectedEnemyId && onAddToBench) {
+      onAddToBench(selectedEnemyId);
+      setShowAddToBenchModal(false);
+    }
+  };
+
+  const handleReplace = (replaceUnitId: string) => {
+    if (selectedEnemyId) {
+      onRecruit(selectedEnemyId, replaceUnitId);
+      setShowReplacementModal(false);
+    }
+  };
+
+  const handleMerge = () => {
+    if (selectedEnemyId && duplicateUnit && onMerge) {
+      onMerge(selectedEnemyId, duplicateUnit.id);
+      setShowMergeModal(false);
+    }
+  };
+
+  return (
+    <div className="h-full w-full bg-gradient-to-b from-purple-800 to-purple-900 flex flex-col">
+      {/* Fixed Header */}
+      <div className="flex-shrink-0 p-4 border-b border-purple-700">
+        <div className="text-center">
+          <h1 className="text-3xl font-bold text-white mb-1">
+            Recruit Defeated Unit
+          </h1>
+          <p className="text-sm text-purple-200">
+            You may recruit one defeated enemy.
+            {!benchHasSpace && teamIsFull && ' Roster is full - must replace a unit.'}
+            {benchHasSpace && ' You can add to bench or replace a unit.'}
+          </p>
+          <p className="text-xs text-purple-300 mt-1">
+            Active Party: {currentTeam.length}/4 units • Bench: {bench.length}/{MAX_BENCH_SIZE} units
+          </p>
+        </div>
+      </div>
+
+      {/* Scrollable Content */}
+      <div className="flex-1 overflow-y-auto px-4 py-3">
+        <div className="max-w-6xl mx-auto">
+          {/* Defeated Enemies */}
+          {defeatedEnemies.length === 0 ? (
+            <div className="text-center py-8 mb-4">
+              <div className="text-5xl mb-3">🎉</div>
+              <h2 className="text-xl font-bold text-white mb-2">No Enemies Defeated</h2>
+              <p className="text-sm text-purple-200">
+                Your team survived without defeating any enemies, or all enemies escaped!
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
+              {defeatedEnemies.map((enemy, index) => {
+              const spriteColor = ROLE_COLORS[enemy.role];
+
+              return (
+                <div
+                  key={`${enemy.id}-${index}`}
+                  className="bg-white dark:bg-gray-800 rounded-lg p-6 border-2 border-gray-300 dark:border-gray-600 hover:border-purple-400 transition-[colors,shadow] duration-200 hover:shadow-lg"
+                >
+                {/* Enemy Sprite */}
+                <div className="flex justify-center mb-4">
+                  {enemy.spriteUrl ? (
+                    <img 
+                      src={enemy.spriteUrl}
+                      alt={`${enemy.name} sprite`}
+                      className="w-24 h-24 object-contain pixel-art drop-shadow-[0_0_8px_rgba(0,0,0,0.5)]"
+                      style={{ imageRendering: 'pixelated' }}
+                    />
+                  ) : (
+                    <div className={`w-20 h-20 rounded-full ${spriteColor} border-4 border-white shadow-lg flex items-center justify-center`}>
+                      <span className="text-white text-3xl font-bold">
+                        {enemy.name.charAt(0)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Enemy Info */}
+                <h3 className="text-xl font-bold text-gray-900 dark:text-white text-center mb-2">
+                  {enemy.name}
+                </h3>
+                
+                <div className="text-center text-sm text-gray-600 dark:text-gray-400 mb-3">
+                  {enemy.role}
+                </div>
+
+                {/* Stats */}
+                <div className="grid grid-cols-2 gap-2 mb-4 text-sm">
+                  <div className="bg-gray-100 dark:bg-gray-700 p-2 rounded">
+                    <div className="text-gray-500 dark:text-gray-400">HP</div>
+                    <div className="font-bold text-gray-900 dark:text-white">{enemy.baseStats.hp}</div>
+                  </div>
+                  <div className="bg-gray-100 dark:bg-gray-700 p-2 rounded">
+                    <div className="text-gray-500 dark:text-gray-400">ATK</div>
+                    <div className="font-bold text-gray-900 dark:text-white">{enemy.baseStats.atk}</div>
+                  </div>
+                  <div className="bg-gray-100 dark:bg-gray-700 p-2 rounded">
+                    <div className="text-gray-500 dark:text-gray-400">DEF</div>
+                    <div className="font-bold text-gray-900 dark:text-white">{enemy.baseStats.def}</div>
+                  </div>
+                  <div className="bg-gray-100 dark:bg-gray-700 p-2 rounded">
+                    <div className="text-gray-500 dark:text-gray-400">SPD</div>
+                    <div className="font-bold text-gray-900 dark:text-white">{enemy.baseStats.speed}</div>
+                  </div>
+                </div>
+
+                {/* Tags */}
+                <div className="flex flex-wrap gap-1 mb-3">
+                  {enemy.tags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="text-xs px-2 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300 rounded-full"
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+
+                {/* Recruit Button */}
+                <button
+                  onClick={() => handleRecruitClick(enemy)}
+                  className="w-full py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-lg transition-colors text-sm"
+                >
+                  Recruit
+                </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        </div>
+      </div>
+
+      {/* Fixed Footer */}
+      <div className="flex-shrink-0 p-4 border-t border-purple-700 bg-purple-900">
+        <div className="max-w-6xl mx-auto text-center">
+          <button
+            onClick={onSkip}
+            className="px-8 py-3 bg-gray-600 hover:bg-gray-700 text-white font-bold rounded-lg transition-colors shadow-lg hover:shadow-xl transform hover:scale-105"
+          >
+            Skip Recruitment
+          </button>
+        </div>
+      </div>
+
+      {/* Add to Bench Modal */}
+      {showAddToBenchModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-8 max-w-lg w-full shadow-2xl">
+            <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">
+              Add to Bench or Replace?
+            </h2>
+            <p className="text-gray-600 dark:text-gray-400 mb-6">
+              Bench has space ({bench.length}/{MAX_BENCH_SIZE}). You can add this unit to your bench for later use, or replace an active party member.
+            </p>
+
+            <div className="space-y-3 mb-6">
+              <button
+                onClick={handleAddToBench}
+                className="w-full py-4 bg-green-600 hover:bg-green-700 text-white font-bold rounded-lg transition-colors text-lg"
+              >
+                ✅ Add to Bench
+              </button>
+              <button
+                onClick={() => {
+                  setShowAddToBenchModal(false);
+                  setShowReplacementModal(true);
+                }}
+                className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition-colors"
+              >
+                🔄 Replace Unit Instead
+              </button>
+            </div>
+
+            <button
+              onClick={() => setShowAddToBenchModal(false)}
+              className="w-full py-3 bg-gray-600 hover:bg-gray-700 text-white font-semibold rounded-lg transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Replacement Modal */}
+      {showReplacementModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-8 max-w-2xl w-full shadow-2xl">
+            <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">
+              Choose Unit to Replace
+            </h2>
+            <p className="text-gray-600 dark:text-gray-400 mb-6">
+              Your roster is full (4/4). Select a unit to replace:
+            </p>
+
+            <div className="grid grid-cols-2 gap-4 mb-6">
+              {currentTeam.map((unit) => {
+                const spriteColor = ROLE_COLORS[unit.role];
+                
+                return (
+                  <button
+                    key={unit.id}
+                    onClick={() => handleReplace(unit.id)}
+                    className="p-4 border-2 border-gray-300 dark:border-gray-600 rounded-lg hover:border-red-500 transition-colors duration-200 text-left"
+                  >
+                    <div className="flex items-center gap-3 mb-2">
+                      {unit.portraitUrl ? (
+                        <img 
+                          src={unit.portraitUrl}
+                          alt={`${unit.name} portrait`}
+                          className="w-12 h-12 object-contain pixel-art"
+                          style={{ imageRendering: 'pixelated' }}
+                        />
+                      ) : (
+                        <div className={`w-12 h-12 rounded-full ${spriteColor} border-2 border-white flex items-center justify-center`}>
+                          <span className="text-white text-xl font-bold">
+                            {unit.name.charAt(0)}
+                          </span>
+                        </div>
+                      )}
+                      <div>
+                        <div className="font-bold text-gray-900 dark:text-white">
+                          {unit.name}
+                        </div>
+                        <div className="text-sm text-gray-600 dark:text-gray-400">
+                          {unit.role} • Lv {unit.level}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">
+                      HP {unit.hp}/{unit.maxHp} • ATK {unit.atk} • DEF {unit.def}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <button
+              onClick={() => setShowReplacementModal(false)}
+              className="w-full py-3 bg-gray-600 hover:bg-gray-700 text-white font-semibold rounded-lg transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Merge Modal (NEW - Rank System Integration) */}
+      {showMergeModal && duplicateUnit && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-gradient-to-br from-yellow-100 to-purple-100 dark:from-yellow-900 dark:to-purple-900 rounded-xl p-8 max-w-lg w-full shadow-2xl border-4 border-yellow-400">
+            <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-4 text-center">
+              ✨ Duplicate Found! ✨
+            </h2>
+            
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-6 mb-6">
+              <p className="text-gray-700 dark:text-gray-300 mb-4">
+                You already have <span className="font-bold text-purple-600 dark:text-purple-400">{duplicateUnit.name}</span> in your team!
+              </p>
+              
+              {/* Current Rank Info */}
+              <div className="mb-4">
+                <div className="text-sm text-gray-600 dark:text-gray-400 mb-2">Current Rank:</div>
+                <div className="flex items-center gap-2">
+                  <span className={`text-2xl font-bold ${getRankDisplay(duplicateUnit.rank).color}`}>
+                    {getRankDisplay(duplicateUnit.rank).badge} {getRankDisplay(duplicateUnit.rank).stars}
+                  </span>
+                  <span className="text-sm text-gray-600 dark:text-gray-400">
+                    {getRankBonusDescription(duplicateUnit.rank)}
+                  </span>
+                </div>
+              </div>
+              
+              {/* Merge Arrow */}
+              <div className="text-center text-4xl text-yellow-500 my-4">
+                ⬇️
+              </div>
+              
+              {/* Next Rank Info */}
+              <div className="mb-4">
+                <div className="text-sm text-gray-600 dark:text-gray-400 mb-2">After Merge:</div>
+                <div className="flex items-center gap-2">
+                  <span className="text-2xl font-bold text-yellow-400">
+                    {(() => {
+                      const nextRank = getNextRank(duplicateUnit.rank);
+                      if (!nextRank) return '[MAX]';
+                      const display = getRankDisplay(nextRank);
+                      return `${display.badge} ${display.stars}`;
+                    })()}
+                  </span>
+                  <span className="text-sm text-green-600 dark:text-green-400 font-semibold">
+                    {getNextRank(duplicateUnit.rank) ? getRankBonusDescription(getNextRank(duplicateUnit.rank)!) : 'Max Rank!'}
+                  </span>
+                </div>
+              </div>
+              
+              <div className="bg-yellow-50 dark:bg-yellow-900/30 border-2 border-yellow-400 rounded p-3 mb-4">
+                <p className="text-sm text-yellow-900 dark:text-yellow-100 font-semibold">
+                  💡 Merging will permanently increase {duplicateUnit.name}'s rank and base stats!
+                </p>
+              </div>
+            </div>
+            
+            {/* Action Buttons */}
+            <div className="flex gap-4">
+              <button
+                onClick={handleMerge}
+                className="flex-1 py-3 bg-gradient-to-r from-yellow-500 to-purple-500 hover:from-yellow-600 hover:to-purple-600 text-white font-bold rounded-lg transition-all shadow-lg"
+              >
+                ⭐ Merge Units
+              </button>
+              <button
+                onClick={() => setShowMergeModal(false)}
+                className="px-6 py-3 bg-gray-500 hover:bg-gray-600 text-white font-bold rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
