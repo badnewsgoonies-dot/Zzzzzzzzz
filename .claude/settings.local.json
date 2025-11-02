@@ -20,7 +20,8 @@
       "Bash(then ls -la \"C:\\Dev\\AiGames\\Zzzzzzzzz\\vale-chronicles\\docs\")",
       "Bash(else echo \"docs directory does not exist\")",
       "Bash(fi)",
-      "Bash(git config:*)"
+      "Bash(git config:*)",
+      "Bash(npx vitest:*)"
     ],
     "deny": [],
     "ask": []
