@@ -1,0 +1,188 @@
+/*
+ * AnimatedUnitSprite: Party member sprite with full Golden Sun animations
+ * 
+ * Features:
+ * - Automatic animation state management
+ * - Weapon-based sprite selection
+ * - Smooth transitions between states
+ * - Fallback to placeholder on sprite load failure
+ */
+
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import type { BattleUnit, Role } from '../../types/game.js';
+import { 
+  getPartySpriteSet,
+  getEnemySprite,
+  getUnitWeapon, 
+  type WeaponType 
+} from '../../data/spriteRegistry.js';
+import { SpriteAnimator } from '../../systems/SpriteAnimator.js';
+
+export interface AnimatedUnitSpriteProps {
+  unit: BattleUnit;
+  weapon?: WeaponType;
+  isAttacking?: boolean;
+  isHit?: boolean;
+  onAttackComplete?: () => void;
+  onHitComplete?: () => void;
+  className?: string;
+  style?: React.CSSProperties;
+}
+
+// Fallback colored circles (existing system)
+const ROLE_COLORS: Record<Role, string> = {
+  Tank: 'bg-blue-600',
+  DPS: 'bg-red-600',
+  Support: 'bg-purple-600',
+  Specialist: 'bg-amber-600',
+};
+
+export function AnimatedUnitSprite({
+  unit,
+  weapon,
+  isAttacking = false,
+  isHit = false,
+  onAttackComplete,
+  onHitComplete,
+  className = '',
+  style,
+}: AnimatedUnitSpriteProps): React.ReactElement {
+  const animator = useRef(new SpriteAnimator()).current;
+  const [currentSprite, setCurrentSprite] = useState<string | null>(null);
+  const [spriteLoadFailed, setSpriteLoadFailed] = useState(false);
+  const [spriteLoading, setSpriteLoading] = useState(true);
+  const lastAttackState = useRef(isAttacking);
+  const lastHitState = useRef(isHit);
+
+  // Get weapon for this unit
+  const unitWeapon = weapon || getUnitWeapon(unit.name);
+
+  // Determine if this is a party member or enemy
+  // Try party sprite first - if it returns null, this is an enemy
+  const partySpriteSet = getPartySpriteSet(unit.name, unitWeapon);
+  const isPartyMember = partySpriteSet !== null;
+  
+  // Get appropriate sprite: party uses sprite set, enemies use single sprite
+  const enemySprite = !isPartyMember ? getEnemySprite(unit.name, unit.role) : null;
+  
+  // For party: use sprite set, for enemies: create sprite set from single sprite
+  const spriteSet = isPartyMember ? partySpriteSet : (
+    enemySprite ? {
+      idle: enemySprite,
+      attack1: enemySprite,
+      attack2: enemySprite,
+      hit: enemySprite,
+      downed: enemySprite,
+      cast1: enemySprite,
+      cast2: enemySprite,
+    } : null
+  );
+
+  // Update current sprite based on animator state
+  const updateSprite = useCallback(() => {
+    // Priority 1: If unit has spriteUrl (recruited enemy), use it directly
+    if (unit.spriteUrl) {
+      setCurrentSprite(unit.spriteUrl);
+      setSpriteLoadFailed(false);
+      setSpriteLoading(false);
+      return;
+    }
+    
+    // Priority 2: Use animated sprite set from registry (starter units)
+    if (!spriteSet) {
+      setSpriteLoadFailed(true);
+      return;
+    }
+
+    const sprite = animator.getCurrentSprite(spriteSet);
+    setCurrentSprite(sprite);
+  }, [spriteSet, animator, unit.spriteUrl]);
+
+  // Subscribe to animation state changes
+  useEffect(() => {
+    const unsubscribe = animator.onChange(updateSprite);
+    updateSprite(); // Initial update
+
+    return unsubscribe;
+  }, [animator, updateSprite]);
+
+  // Handle attack trigger
+  useEffect(() => {
+    if (isAttacking && !lastAttackState.current) {
+      animator.playAttack(() => {
+        onAttackComplete?.();
+      });
+    }
+    lastAttackState.current = isAttacking;
+  }, [isAttacking, animator, onAttackComplete]);
+
+  // Handle hit trigger
+  useEffect(() => {
+    if (isHit && !lastHitState.current) {
+      animator.playHit(() => {
+        onHitComplete?.();
+      });
+    }
+    lastHitState.current = isHit;
+  }, [isHit, animator, onHitComplete]);
+
+  // Handle downed state
+  useEffect(() => {
+    if (unit.currentHp <= 0) {
+      animator.playDowned();
+    }
+  }, [unit.currentHp, animator]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => animator.destroy();
+  }, [animator]);
+
+  // Fallback to colored circle if sprite loading fails
+  if (spriteLoadFailed || !spriteSet || !currentSprite) {
+    const color = ROLE_COLORS[unit.role];
+    return (
+      <div className={`w-32 h-32 rounded-full ${color} border-4 border-white shadow-lg flex items-center justify-center ${className}`}>
+        <span className="text-white text-3xl font-bold">
+          {unit.name.charAt(0)}
+        </span>
+      </div>
+    );
+  }
+
+  // Render Golden Sun sprite with loading skeleton (larger size)
+  return (
+    <div className="relative">
+      {spriteLoading && (
+        <div className="absolute inset-0 w-40 h-40 bg-slate-700/50 animate-pulse rounded-lg" />
+      )}
+      <img
+        src={currentSprite}
+        alt={unit.name}
+        width={160}
+        height={160}
+        className={`w-40 h-40 object-contain ${className} ${spriteLoading ? 'opacity-0' : 'opacity-100'} transition-opacity duration-300`}
+        style={{
+          imageRendering: 'pixelated',
+          filter: unit.currentHp <= 0 ? 'grayscale(100%) opacity(0.5)' : 'none',
+          // Party sprites face right by default (toward enemies) - no flip needed
+          ...style,
+        }}
+        onLoad={() => setSpriteLoading(false)}
+        onError={() => {
+          console.warn(`Failed to load sprite: ${currentSprite}`);
+          setSpriteLoadFailed(true);
+          setSpriteLoading(false);
+        }}
+      />
+
+      {/* KO overlay */}
+      {unit.currentHp <= 0 && (
+        <div className="absolute inset-0 bg-black/60 flex items-center justify-center pointer-events-none">
+          <span className="text-red-400 font-bold text-sm">KO</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
