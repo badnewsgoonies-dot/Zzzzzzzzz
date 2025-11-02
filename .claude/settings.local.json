@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git checkout:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(mkdir:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nAdd Graphics Phase 1 mockups: Equipment Screen and Battle Transition\n\nCreated pixel-perfect HTML/CSS mockups following Golden Sun GBA aesthetic.\n\nDeliverables:\n- mockups/equipment-screen.html - Gear management UI with 4 slots, stat comparison, and inventory\n- mockups/battle-transition.html - CSS swirl animation sequence (overworld → battle)\n- mockups/tokens.css - Design system (colors, spacing, z-index, timing) reused from approved mockups\n- mockups/equipment-screen-sprite-map.json - Complete sprite documentation\n- mockups/EQUIPMENT_SCREEN_APPROVED.md - Full design documentation\n- mockups/BATTLE_TRANSITION_APPROVED.md - Animation sequence documentation\n\nDesign patterns used:\n- Semi-transparent panels with 3D borders (from Djinn menu)\n- Element color coding (Venus/Mars/Jupiter)\n- WCAG 2.1 AA accessibility (keyboard nav, ARIA, contrast, reduced motion)\n- Press Start 2P font for authentic GBA feel\n\nReady for Graphics Phase 2 (React conversion).\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(git log:*)",
+      "Bash(git cherry-pick:*)",
+      "Bash(git push:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
